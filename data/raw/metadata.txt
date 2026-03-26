@@ -1,0 +1,47 @@
+Variable 	Definition	example of accepted values	
+interview.id	unique identification of the interview event	DG.O.1	DG - village abbreviation
+grid.id	unique identification number of the grid sampled	231	
+date	date of the interview	dd/mm/yy	
+village	village	Darlong	
+exp.indv	experience of the individual interviewed in years	20	
+sps.known	hornbill species known to the individual in that region	gh,oph,wh,rnh,bh	
+confidence.indv	confidence of the individual in identifying the species of hornbills found in the region	1|2|0	
+dist.to.grid	distance to the grid from the respondent's place of residence in kms	2	
+purpose.visit.24	purpose of visits to the demarcated grid by the respondent in 2024-25	logging, settled agriculture, jhum, etc.	
+purpose.visit.04	purpose of visits to the demarcated grid by the respondent in 2004-05	logging, settled agriculture, jhum, etc.	
+proportion.grid.24	proportion of the grid visited in 2024-25	1 or 1/4 or 3/4 or 1/2	
+proportion.grid.04	proportion of the grid visited in 2004-05	1 or 1/4 or 3/4 or 1/2	
+frequency.visits.24	frequency of visits to the grid in 2024-25	20	
+frequency.visits.04	frequency of visits to the grid in 2004-05	30	
+activity1.grid.24	activities carried out in the grid in 2024-25	reserve forest, protected area, plantation, restoration, agriculture, logging, etc.	
+activity1.grid.04	activities carried out in the grid in 2004-05	reserve forest, protected area, plantation, restoration, agriculture, logging, etc.	
+activity2.grid.24	activities carried out in the grid in 2024-25	reserve forest, protected area, plantation, restoration, agriculture, logging, etc.	
+activity2.grid.04	activities carried out in the grid in 2004-05	reserve forest, protected area, plantation, restoration, agriculture, logging, etc.	
+activity3.grid.24	activities carried out in the grid in 2024-25	reserve forest, protected area, plantation, restoration, agriculture, logging, etc.	
+activity3.grid.04	activities carried out in the grid in 2004-05	reserve forest, protected area, plantation, restoration, agriculture, logging, etc.	
+hunting.24	hunting practised inside the grid in 2024-25	yes or no	
+hunting.04	hunting practised inside the grid in 2004-05	yes or no	
+food trees	hornbill food trees present inside the grid as noticed by the respondent	local names and descriptions if they can provide	
+meat.eaten	if hornbills are hunted, is their meat consumed?	yes or no	
+body.parts	what body parts are used	tail, casque, etc.	
+use.body.parts	what are the uses for these body parts	eating, ritual alters	
+season.hunting	what is the season of hunting hornbills	month numbers - 7,8,9 = July, August, September	
+gender.respondent	gender of the respondent	male/female	
+age.respondent	age of the respondent	43	
+ethnicity.respondent	ethnicity of the respondent	tribe names	
+district	district	Pakke Kesang	
+latitude 	latitude of the village 	26.943356	
+longitude	longitude of the village 	92.9970165	
+name	name of the respondent	Budhhiram	
+			
+For hornbill detections sheet			
+grid.id	unique identification of the interview event	231	
+species	Abbreviation for hornbill species	gh = great hornbill	
+interview.n	whether that species was observed in the grid by the interviewe, use the confidence levels to report possible false positives. (0 = no encounter, 1 = encountered but possible confusion between a pair of species, 2 = encountered and no confudion between species)	0,1,2	
+high.non	highest number of individuals observed for a species in that year	4	
+detection.history	concatenation of detection events in the four interviews, with each digit in sequence representing repetead surveys	1,2,1,0	
+season	season in which the species was most frequently detected		
+interview.id1	id of the interview 1	sh.o.231	sh - code for village name, O - occupancy interview, 23 - date, 1 - interview number(1st) on that day
+interview.id2	id of the interview 2		
+interview.id3	.		
+interview.id4	.		

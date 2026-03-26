@@ -1,0 +1,45 @@
+village	local name	community	common.name	scientific.name	
+Darlong	paga	Nyishi	great hornbill	Buceros bicornis	
+Darlong	peo	Nyishi	rufous necked hornbill	Aceros nipalensis	corrected by AD
+Darlong	poo	Nyishi	wreathed hornbill	Rhyticeros undulatus	
+Darlong	garhe	Nyishi	oriental pied hornbill	Anthracoceros albiventris	corrected by AD
+Shergaon	Wagruse	sherdutpen	great hornbill		
+Shergaon	Manchu	sherdutpen	rufous necked hornbill		
+Balemu	wagre	monpa	GH		
+Boha	Sherkang/ wagre	Monpa	GH		
+Boha	Ngoikhang wagre	Monpa	RNH		
+yelloripam	topiwala sherkhang	monpa	GH		
+yelloripam	mukha	monpa	WH		
+yelloripam	moi khang	monpa	RNH		
+yelloripam	assam wagre	monpa	OPH		
+bichom	fullowi	bugun	RNH		
+bichom	phikhyang	bugun	GH		
+khellong	gaji	shajalong	RNH		
+khellong	shingram	shajalong	OPH		
+nijum	gaji	shajalong	RNH		
+nijum	shungron	shajalong	OPH		
+janaching	gaji	shajalong	RNH		
+janaching	shangram	shajalong	GH		
+elephant flat	phygrow	akka	GH		
+elephant flat	guddu suju	akka	OPH		
+elephant flat	guddu	akka	RNH		
+singchung	phullog		GH		
+singchung	phukhyan		RNH		
+sekang	gaji		RNH		
+sekang	singsum	shajalong	GH		
+sekang	gajji	shajalong	RNH		
+sekang	pazhai	purohui	RNH		
+sekang	pazhang	purohui	GH		
+kojo	pulloi	puroik	RNH		
+kadeya, Bichom	piti mapa	Aka	GH		
+kadeya, Bichom	piti mijing	Aka	RNH		
+kadeya, Bichom	piti pok	Aka	OPH		
+Khupi	phugrow	aka	GH		
+Khupi	guddru	aka	RNH		
+Bomte, lower subansiri	PIHIK	galo	gh		
+Bomte, lower subansiri	PEGA	galo	rnh		
+Bomte, lower subansiri	GARHE	galo	oph		
+tippi	sangram	aka	gh		
+tippi	gajje ki	aka	oph		
+tippi	gajje	aka	rnh		
+tippi	gajje shudu	aka	wh		
