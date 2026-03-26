@@ -12,6 +12,9 @@ let's start with loading our data
 library(readr)
 library(dplyr)
 library(ggplot2)
+library(sf)
+library(stringr)
+
 
 #load covariate and occurence data
 covariates <- read_tsv("data/Occupancy Data Collection Sheet - covariates master sheet.tsv")
@@ -91,12 +94,45 @@ Thus we have 94 grids that have at least one replicate and 82 with at least thre
 
 ## Let's make some maps
 
-We will now switch make a couple of figures showing the spatial extent of our data.
+We will now make a couple of figures showing the spatial extent of our data.
 
 ```{r}
 setwd("C:/DATA/NCF/Occupancy modelling")
 
 # load the grids shape file 
-library(sf)
-grids <- st_read("")
+grids <- st_read("../spatial-data/filtered_grids_for_suitability.kml")
+covariates <- read_tsv("data/raw/covariates-cur-his-clean.txt")
+# Drop geometry, keep only attribute columns
+grids_df <- grids %>%
+  st_drop_geometry()
+
+head(grids_df)
+
+## Now that we understand the structure of the kml we will proceed to extract it as a dataframe
+
+grids_df <- grids %>%
+  st_drop_geometry() %>%
+  dplyr::mutate(
+    fid       = str_extract(Description, "(?<=fid: )\\d+"),
+    mean_elev = str_extract(Description, "(?<=mean_elev: )[\\d.]+"),
+    elev_band = str_extract(Description, "(?<=elev_band: )[^<]+")
+  ) %>%
+  dplyr::mutate(
+    fid       = as.integer(fid),
+    mean_elev = as.numeric(mean_elev)
+  )
+## now we also edit the sf object to add these columns separately
+grids_df <- grids %>%
+  st_drop_geometry() %>%
+  dplyr::mutate(
+    fid       = str_extract(Description, "(?<=fid: )\\d+"),
+    mean_elev = str_extract(Description, "(?<=mean_elev: )[\\d.]+"),
+    elev_band = str_extract(Description, "(?<=elev_band: )[^<]+")
+  ) %>%
+  dplyr::mutate(
+    fid       = as.integer(fid),
+    mean_elev = as.numeric(mean_elev)
+  ) %>%
+  dplyr::select(fid, mean_elev, elev_band)   # drop Name and Description
+
 ```
