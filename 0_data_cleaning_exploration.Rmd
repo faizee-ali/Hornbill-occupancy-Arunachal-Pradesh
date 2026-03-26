@@ -1,0 +1,102 @@
+---
+title: "Basic statistics from the occupancy interview data"
+output: html_notebook
+---
+
+## Basic statistics from the occupancy interview data
+
+let's start with loading our data
+
+```{r}
+#import packages
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+#load covariate and occurence data
+covariates <- read_tsv("data/Occupancy Data Collection Sheet - covariates master sheet.tsv")
+# merged species occurence records for 2024-2025
+occ_cur <- read_tsv("data/Occupancy Data Collection Sheet - hornbill detections current.tsv")
+
+# merged species occurence records for 2004-2005
+occ_pas <- read_tsv("data/Occupancy Data Collection Sheet - hornbill detections past.tsv")
+
+
+```
+
+## Now we will see some basic stats
+
+```{r}
+grids <- unique(covariates$grid.id)
+# so we sampled 96 grids in total
+#now make a histogram of number of replicates in these grids
+
+# add a replicates column per grid.id
+covariates <- covariates %>%
+  add_count(grid.id, name = "replicates")
+
+
+# filter to keep only the interviews with current detections
+covariates_cur <- covariates %>% filter(proportion.grid.24 != "na")
+
+# Count replicates per grid.id
+replicate_counts <- covariates_cur %>%
+  count(grid.id)
+# Histogram of those counts
+ggplot(replicate_counts, aes(x = n)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "white") +
+   geom_text(
+    stat = "bin", binwidth = 1,
+    aes(label = after_stat(count)),
+    vjust = -0.5, size = 3.5
+  ) +
+  labs(
+    title = "Distribution of Replicates per Grid ID",
+    x = "Number of Replicates",
+    y = "Number of Grid IDs"
+  ) +
+  theme_minimal()
+```
+
+Thus we have 95 grids that have at least one replicate and 89 with at least three replicates for current occupancy.
+
+Now for the historic data (2004-2005)
+
+```{r}
+# filter to keep only the interviews with historical detections
+covariates_pas <- covariates %>% filter(proportion.grid.04 != "na")
+
+# Count replicates per grid.id
+replicate_counts <- covariates_pas %>%
+  count(grid.id)
+# Histogram of those counts
+ggplot(replicate_counts, aes(x = n)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "white") +
+   geom_text(
+    stat = "bin", binwidth = 1,
+    aes(label = after_stat(count)),
+    vjust = -0.5, size = 3.5
+  ) +
+  labs(
+    title = "Distribution of Replicates per Grid ID",
+    x = "Number of Replicates",
+    y = "Number of Grid IDs"
+  ) +
+  theme_minimal()
+```
+
+Thus we have 94 grids that have at least one replicate and 82 with at least three replicates for historic occupancy.
+
+**So just to include 5 and 12 more grids in the** current and historic distribution we should not use the variable sampling area strategy.
+
+## Let's make some maps
+
+We will now switch make a couple of figures showing the spatial extent of our data.
+
+```{r}
+setwd("C:/DATA/NCF/Occupancy modelling")
+
+# load the grids shape file 
+library(sf)
+grids <- st_read("")
+```
