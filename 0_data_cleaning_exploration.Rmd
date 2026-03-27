@@ -17,7 +17,7 @@ library(stringr)
 
 
 #load covariate and occurence data
-covariates <- read_tsv("data/Occupancy Data Collection Sheet - covariates master sheet.tsv")
+covariates <- read_tsv("data/raw/covariates-cur-his-clean.txt")
 # merged species occurence records for 2024-2025
 occ_cur <- read_tsv("data/Occupancy Data Collection Sheet - hornbill detections current.tsv")
 
@@ -61,7 +61,8 @@ ggplot(replicate_counts, aes(x = n)) +
   theme_minimal()
 ```
 
-Thus we have 95 grids that have at least one replicate and 89 with at least three replicates for current occupancy.
+Thus we have 95 grids that have at least one replicate and 89 with at
+least three replicates for current occupancy.
 
 Now for the historic data (2004-2005)
 
@@ -88,51 +89,87 @@ ggplot(replicate_counts, aes(x = n)) +
   theme_minimal()
 ```
 
-Thus we have 94 grids that have at least one replicate and 82 with at least three replicates for historic occupancy.
+Thus we have 94 grids that have at least one replicate and 82 with at
+least three replicates for historic occupancy.
 
-**So just to include 5 and 12 more grids in the** current and historic distribution we should not use the variable sampling area strategy.
+**So just to include 5 and 12 more grids in the** current and historic
+distribution we should not use the variable sampling area strategy.
 
 ## Let's make some maps
 
-We will now make a couple of figures showing the spatial extent of our data.
+We will now make a couple of figures showing the spatial extent of our
+data.
 
 ```{r}
-setwd("C:/DATA/NCF/Occupancy modelling")
-
 # load the grids shape file 
-grids <- st_read("../spatial-data/filtered_grids_for_suitability.kml")
-covariates <- read_tsv("data/raw/covariates-cur-his-clean.txt")
-# Drop geometry, keep only attribute columns
-grids_df <- grids %>%
-  st_drop_geometry()
+# Unzip the KMZ to a temporary directory
+kmz_path <- "../spatial-data/Grids.kmz"
+unzip(kmz_path, exdir = tempdir())
 
-head(grids_df)
+# Find the extracted KML file
+kml_path <- list.files(tempdir(), pattern = "\\.kml$", 
+                        full.names = TRUE, recursive = TRUE)
+
+# Read it
+grids <- st_read(kml_path)
+covariates <- read_tsv("data/raw/covariates-cur-his-clean.txt")
 
 ## Now that we understand the structure of the kml we will proceed to extract it as a dataframe
 
-grids_df <- grids %>%
-  st_drop_geometry() %>%
-  dplyr::mutate(
-    fid       = str_extract(Description, "(?<=fid: )\\d+"),
-    mean_elev = str_extract(Description, "(?<=mean_elev: )[\\d.]+"),
-    elev_band = str_extract(Description, "(?<=elev_band: )[^<]+")
-  ) %>%
-  dplyr::mutate(
-    fid       = as.integer(fid),
-    mean_elev = as.numeric(mean_elev)
-  )
+#structuring ht grids_sf file for filtering
+#make a function to extract fid, mean_elev, and elev_band
+extract_field <- function(html, field_name) {
+  pattern <- paste0("(?<=<b>", field_name, "</b></small></td><td[^>]{0,50}>)[^<]+")
+  str_extract(html, pattern)
+}
+
 ## now we also edit the sf object to add these columns separately
-grids_df <- grids %>%
-  st_drop_geometry() %>%
+
+grids_sf <- grids %>%
   dplyr::mutate(
-    fid       = str_extract(Description, "(?<=fid: )\\d+"),
-    mean_elev = str_extract(Description, "(?<=mean_elev: )[\\d.]+"),
-    elev_band = str_extract(Description, "(?<=elev_band: )[^<]+")
-  ) %>%
-  dplyr::mutate(
-    fid       = as.integer(fid),
-    mean_elev = as.numeric(mean_elev)
-  ) %>%
-  dplyr::select(fid, mean_elev, elev_band)   # drop Name and Description
+    fid       = as.integer(extract_field(Description, "fid")),
+    mean_elev = as.numeric(extract_field(Description, "mean_elev")),
+    elev_band = trimws(extract_field(Description, "elev_band"))
+  )
+
+head(grids_sf[, c("fid", "mean_elev", "elev_band")])
+
+covariates <- covariates %>%
+  dplyr::left_join(
+    grids_sf %>% dplyr::select(fid, mean_elev, elev_band),
+    by = c("grid.id" = "fid")
+  )
+#save this updated covariates
+write_tsv(covariates, "data/processed/covariates-full-elevation.txt")
+#keep only those grids in grids_sf which have > 3 replicates
+covariates <- covariates %>% filter(replicates > 2)
+write_tsv(covariates, "data/processed/covariates-full-elevation-filtered.txt")
+
+class(grids_sf$fid)
+class(covariates$grid.id)
+# Check for NAs
+sum(is.na(grids_sf$fid))
+sum(is.na(covariates$grid.id))
+
+# Convert both to integer before filtering
+grids_df_fil <- grids_sf %>%
+  dplyr::filter(as.integer(fid) %in% as.integer(covariates$grid.id))
+#remove duplicates
+grids_df_fil <- grids_df_fil %>%
+  dplyr::distinct(fid, .keep_all = TRUE)
+#save this as kml
+st_write(grids_df_fil, "data/processed/grids_clean_data_complete.kml", driver = "KML", delete_dsn = TRUE)
+
+```
+
+### Distribution of sampling along the elevational gradient
+
+Now we will make a histogram of number of grids sampled at least thrice
+for current and historic data
+
+**Let** **us do it for current data first**
+
+```{r}
+# we will use the grids_sf object for this
 
 ```
