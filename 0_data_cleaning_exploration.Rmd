@@ -171,5 +171,25 @@ for current and historic data
 
 ```{r}
 # we will use the grids_sf object for this
+#count no. of checklists
+counts_grids <- hist(grids_df_fil$mean_elev, breaks = seq(0,2500,500), col='pink' , xlab="mean elevation of a grid (m)" , ylab="number of grids", main = '')$counts
+
+bands <- seq(0, 2500, 500)
+labels <- c()
+for(i in 1:5){
+    labels[i] <- paste(bands[i],"-",bands[i+1], "m")
+} 
+df<- data.frame(labels, counts_grids)
+value = floor(counts_grids)
+
+ggplot(df, aes(x = labels, y = counts_grids)) + geom_bar(stat = "identity", color="black", fill="pink")+
+    theme(axis.text.x = element_text(angle = 0, hjust = 1, size = 12),
+          axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 16), 
+    axis.title.y = element_text(size = 16))+
+    scale_x_discrete(limits = labels)+
+    xlab("Elevational Band (m)")+
+    ylab(expression(paste("Number of grids sampled")))+
+    geom_text(aes(label = value, vjust = -0.5))
 
 ```
