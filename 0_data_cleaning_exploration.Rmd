@@ -14,8 +14,9 @@ library(dplyr)
 library(ggplot2)
 library(sf)
 library(stringr)
+```
 
-
+```{r}
 #load covariate and occurence data
 covariates <- read_tsv("data/raw/covariates-cur-his-clean.txt")
 # merged species occurence records for 2024-2025
@@ -103,7 +104,7 @@ data.
 ```{r}
 # load the grids shape file 
 # Unzip the KMZ to a temporary directory
-kmz_path <- "../spatial-data/Grids.kmz"
+kmz_path <- "spatial-data/Grids.kmz"
 unzip(kmz_path, exdir = tempdir())
 
 # Find the extracted KML file

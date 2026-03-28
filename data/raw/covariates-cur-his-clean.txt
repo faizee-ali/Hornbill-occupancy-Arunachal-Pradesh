@@ -311,3 +311,6 @@ SI.O.12	75	25/3/26	khellong	wh, gh	2	11	research field work	research field work	
 SI.O.12	117	25/3/26	bompu	rnh	2	11	research field work	research field work	0	1	30	NA	NA	forest	NA	NA	NA	NA	NA	no		no idea	NA	NA	NA	NA	m	35	nepali	NA	3
 SI.O.13	75	25/3/26	khellong	wh, gh	2	11	research field work	research field work	0	1	30	NA	NA	forest	NA	NA	NA	NA	NA	no		no idea	NA	NA	NA	NA	m	35	nepali	NA	3
 SI.O.13	117	25/3/26	bompu	rnh	2	11	research field work	research field work	0	1	30	NA	NA	forest	NA	NA	NA	NA	NA	no		no idea	NA	NA	NA	NA	m	35	nepali	NA	3
+TV.O.11	825	27/2/26	hapoli	gh, wh, oph	2	24	patroling	patroling	5	3/4	15	3/4	10	forest	NA	NA	forest	NA	NA	no	yes	no idea	NA	NA	NA	NA	m	45	nepali	NA	3
+TV.O.12	825	27/2/26	hapoli	gh, wh, oph	2	24	patroling	patroling	5	3/4	15	3/4	10	forest	NA	NA	forest	NA	NA	no	yes	no idea	NA	NA	NA	NA	m	45	nepali	NA	3
+TV.O.13	825	27/2/26	hapoli	gh, wh, oph	2	24	patroling	patroling	5	3/4	15	3/4	10	forest	NA	NA	forest	NA	NA	no	yes	no idea	NA	NA	NA	NA	m	45	nepali	NA	3
