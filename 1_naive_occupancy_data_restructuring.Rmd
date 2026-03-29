@@ -35,17 +35,16 @@ det_cur <- det_cur %>%
       ifelse(is.na(interview4),  "", as.character(interview4))
     )
   )
-
+det_cur_fil <- det_cur %>% filter(interview.3 !="NA") 
 # Separate species and filter grids with < 3 replicates
 det_cur_gh <- det_cur %>% filter(det_cur$species == "GH", interview.3 !="NA")
 det_cur_wh <- det_cur %>% filter(det_cur$species == "WH", interview.3 !="NA")
 det_cur_oph <- det_cur %>% filter(det_cur$species == "OPH", interview.3 !="NA")
 det_cur_rnh <- det_cur %>% filter(det_cur$species == "RNH", interview.3 !="NA")
 
-# technically we are done for now however we will do some more restructuring that can be useful in some later analyses
 ```
 
-Now lets get the Naive occupancy!
+2.2 Now lets get the Naive occupancy!
 
 ```{r}
 # we will count the number of grids with at least one detection using out det.hit column
@@ -72,4 +71,67 @@ print(paste("Naive occupancy of GH is",no_gh))
 print(paste("Naive occupancy of WH is",no_wh))
 print(paste("Naive occupancy of OPH is",no_oph))
 print(paste("Naive occupancy of RNH is",no_rnh))
+```
+
+#### 2.3 Now repeat the same for historic data
+
+```{r}
+# load our current detections data for all species
+det_cur <- read_tsv("data/raw/all-hornbill-detections-historic.tsv")
+# restify the concatenated detection history column
+det_cur <- det_cur %>% select(-detection.history)
+det_cur <- det_cur %>%
+  dplyr::mutate(
+    det.hist = paste0(
+      ifelse(is.na(interview.1), "", as.character(interview.1)),
+      ifelse(is.na(interview.2), "", as.character(interview.2)),
+      ifelse(is.na(interview.3), "", as.character(interview.3)),
+      ifelse(is.na(interview4),  "", as.character(interview4))
+    )
+  )
+
+# Separate species and filter grids with < 3 replicates
+det_cur_gh <- det_cur %>% filter(det_cur$species == "GH", interview.3 !="NA")
+det_cur_wh <- det_cur %>% filter(det_cur$species == "WH", interview.3 !="NA")
+det_cur_oph <- det_cur %>% filter(det_cur$species == "OPH", interview.3 !="NA")
+det_cur_rnh <- det_cur %>% filter(det_cur$species == "RNH", interview.3 !="NA")
+
+# we will count the number of grids with at least one detection using out det.hit column
+
+# for great hornbill
+#grids with positive detections
+det_cur_gh_pos <- filter(det_cur_gh, det_cur_gh$interview.1 == 2 | det_cur_gh$interview.2 == 2 | det_cur_gh$interview.3 == 2 | det_cur_gh$interview4 == 2)
+no_gh <- nrow(det_cur_gh_pos)/nrow(det_cur_gh)
+
+#for wreathed hornbill
+det_cur_wh_pos <- filter(det_cur_wh, det_cur_wh$interview.1 == 2 | det_cur_wh$interview.2 == 2 | det_cur_wh$interview.3 == 2 | det_cur_wh$interview4 == 2)
+no_wh <- nrow(det_cur_wh_pos)/nrow(det_cur_wh)
+
+#for oph
+det_cur_pos <- filter(det_cur_oph, det_cur_oph$interview.1 == 2 | det_cur_oph$interview.2 == 2 | det_cur_oph$interview.3 == 2 | det_cur_oph$interview4 == 2)
+no_oph <- nrow(det_cur_pos)/86
+
+
+#for oph
+det_cur_pos <- filter(det_cur_rnh, det_cur_rnh$interview.1 == 2 | det_cur_rnh$interview.2 == 2 | det_cur_rnh$interview.3 == 2 | det_cur_rnh$interview4 == 2)
+no_rnh <- nrow(det_cur_pos)/86
+
+print(paste("Naive occupancy of GH is",no_gh))
+print(paste("Naive occupancy of WH is",no_wh))
+print(paste("Naive occupancy of OPH is",no_oph))
+print(paste("Naive occupancy of RNH is",no_rnh))
+
+# save both the filtered datasets
+det_his_fil <- det_his %>% filter(interview.3 !="NA") 
+
+write_tsv(det_his_fil, "data/processed/all-hornbill-historic-detections-filtered.txt")
+write_tsv(det_cur_fil, "data/processed/all-hornbill-current-detections-filtered.txt")
+write_tsv(det_his, "data/raw/all-hornbill-detections-historic.txt")
+```
+
+3 Technically we are done for now however we will do some more
+restructuring that can be useful in some later analyses
+
+```{r}
+# Replace useless highno. columns by a single one
 ```
