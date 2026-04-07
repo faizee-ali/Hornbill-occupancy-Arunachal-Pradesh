@@ -1,0 +1,110 @@
+---
+title: "Cleaning the covariates"
+author: "Ali Khan Faizee"
+date: "2026-04-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Road length
+
+Let's start with preparing the road length per grid covariates. We have
+alsready calculated the length of roads in the grids with QGIS, now will
+add them to the grid data
+
+```{r}
+# load libraries and data
+library(sf)
+library(dplyr)
+library(stringr)
+road_length <- read.csv("spatial-data/road-length-analysis/road-length-data.csv")
+head(road_length)
+
+# Join to covariates
+covariates <- read.delim("data/processed/covariates-full-elevation-filtered.txt", sep = "\t")
+
+covariates_road <- covariates %>%
+  dplyr::left_join(
+    road_length %>% select(fid, length_roa),
+    by = c("grid.id" = "fid")
+    
+  )
+## let us loose the useless columns in the covariates 
+
+covariates_road <- covariates_road %>% select(-mean_elev.x, -elev_band.x, -geometry.x)
+covariates_road <- covariates_road %>% mutate(mean_elev = mean_elev.y, elev_band = elev_band.y, geometry = geometry.y) %>% select(-mean_elev.y, -elev_band.y, -geometry.y)
+write.table(covariates_road, "data/processed/covariates-full-elevation-roads.txt", sep = "\t")
+```
+
+troubleshoot
+
+```{r}
+# Check CRS of both layers
+st_crs(roads) == st_crs(grids_sf)
+
+# Check bounding boxes — do they overlap?
+st_bbox(roads)
+st_bbox(grids)
+
+# Step 1 — transform roads to WGS84 to match grids
+roads <- st_transform(roads, crs = 4326)
+
+# Verify bounding boxes now match
+st_bbox(roads)
+
+# Quick visual check — do they plot on top of each other?
+
+plot(st_geometry(grids_sf))
+plot(st_geometry(roads), add = TRUE, col = "red")
+```
+
+Lets try this pipeline
+
+```{r}
+
+# Make sure both are in UTM 46N
+roads_proj <- st_transform(roads, crs = 32646)
+grids_proj <- st_transform(grids_sf, crs = 32646)
+
+# Fix geometries
+roads_proj <- st_make_valid(roads_proj)
+grids_proj <- st_make_valid(grids_proj)
+
+# Initialize results dataframe
+results <- data.frame(fid = integer(), road_length_m = numeric())
+
+# Loop through each grid one by one
+for (i in 1:nrow(grids_proj)) {
+  
+  # Get single grid
+  single_grid <- grids_proj[i, ]
+  fid_val     <- single_grid$fid
+  
+  # Intersect roads with this grid
+  roads_clipped <- tryCatch(
+    st_intersection(roads_proj, single_grid),
+    error = function(e) NULL   # if intersection fails, return NULL
+  )
+  
+  # Calculate total road length in this grid
+  if (is.null(roads_clipped) || nrow(roads_clipped) == 0) {
+    total_length <- 0
+  } else {
+    total_length <- sum(as.numeric(st_length(roads_clipped)), na.rm = TRUE)
+  }
+  
+  # Append to results
+  results <- rbind(results, data.frame(fid = fid_val, road_length_m = total_length))
+  
+  # Progress tracker
+  cat("Processed grid", i, "of", nrow(grids_proj), "| fid:", fid_val, "| length:", round(total_length, 1), "m\n")
+}
+
+# Check results
+head(results)
+summary(results$road_length_m)
+sum(results$road_length_m == 0)   # how many grids have no roads
+```
