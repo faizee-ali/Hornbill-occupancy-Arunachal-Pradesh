@@ -61,7 +61,7 @@ plot(st_geometry(grids_sf))
 plot(st_geometry(roads), add = TRUE, col = "red")
 ```
 
-Lets try this pipeline
+Now let us do canopy cover and canopy height
 
 ```{r}
 
@@ -107,4 +107,50 @@ for (i in 1:nrow(grids_proj)) {
 head(results)
 summary(results$road_length_m)
 sum(results$road_length_m == 0)   # how many grids have no roads
+```
+
+I realised that the drids are not all square shaped so I will replace
+the geometry with an un adulterated grid set
+
+```{r}
+data_grids_clean <- st_read("spatial-data/grids_clean_data_complete.kml")
+data_grids <- st_read("spatial-data/grids_with_data.kml")
+naive_grids <- st_read("spatial-data/naive_grids.shp")
+
+
+#make a function to extract fid, mean_elev, and elev_band
+extract_field <- function(html, field_name) {
+  pattern <- paste0("(?<=<b>", field_name, "</b></small></td><td[^>]{0,50}>)[^<]+")
+  str_extract(html, pattern)
+}
+
+## now we also edit the sf object to add these columns separately
+data_grids_clean <- data_grids_clean %>%
+  dplyr::mutate(
+    fid       = as.integer(extract_field(Description, "fid")),
+    mean_elev = as.numeric(extract_field(Description, "mean_elev")),
+    elev_band = trimws(extract_field(Description, "elev_band"))
+  )
+#save this
+st_write(data_grids_clean, "spatial-data/grids-with-data.gpkg")
+
+#now its turn for all the grids
+data_grids <- data_grids %>%
+  dplyr::distinct(fid, .keep_all = TRUE)
+#remove duplicates from the grids with data
+data_grids <- data_grids %>%
+  dplyr::mutate(
+    fid       = as.integer(extract_field(Description, "fid")),
+    mean_elev = as.numeric(extract_field(Description, "mean_elev")),
+    elev_band = trimws(extract_field(Description, "elev_band"))
+  )
+##then replace the geometry according to fid
+naive_grids <- naive_grids %>% st_transform(crs = 4326) %>% filter(fid %in% data_grids$fid) %>% dplyr::mutate(fid = as.integer(fid))
+
+st_write(naive_grids, "final-grids-with-data.gpkg")
+
+## correcting sampled grids
+naive_grids <- st_read("spatial-data/final-grids-with-data.shp")
+sampled_grids <- naive_grids %>% st_transform(crs = 4326) %>% filter(fid %in% data_grids_clean$fid) %>% dplyr::mutate(fid = as.integer(fid))
+st_write(sampled_grids, "spatial-data/sampled-grids.shp")
 ```
