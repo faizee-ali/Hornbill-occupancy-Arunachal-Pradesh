@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ### Road length
 
 Let's start with preparing the road length per grid covariates. We have
-alsready calculated the length of roads in the grids with QGIS, now will
+already calculated the length of roads in the grids with QGIS, now will
 add them to the grid data
 
 ```{r}
@@ -20,17 +20,18 @@ add them to the grid data
 library(sf)
 library(dplyr)
 library(stringr)
-road_length <- read.csv("spatial-data/road-length-analysis/road-length-data.csv")
+road_length <- read.csv("spatial-data/covariate-calcs/road-lengths.csv")
 head(road_length)
+# Check results
+sum(road_length$road_length == 0)   # how many grids have no roads
 
 # Join to covariates
 covariates <- read.delim("data/processed/covariates-full-elevation-filtered.txt", sep = "\t")
 
 covariates_road <- covariates %>%
   dplyr::left_join(
-    road_length %>% select(fid, length_roa),
+    road_length %>% select(fid, road_length),
     by = c("grid.id" = "fid")
-    
   )
 ## let us loose the useless columns in the covariates 
 
@@ -39,77 +40,7 @@ covariates_road <- covariates_road %>% mutate(mean_elev = mean_elev.y, elev_band
 write.table(covariates_road, "data/processed/covariates-full-elevation-roads.txt", sep = "\t")
 ```
 
-troubleshoot
-
-```{r}
-# Check CRS of both layers
-st_crs(roads) == st_crs(grids_sf)
-
-# Check bounding boxes — do they overlap?
-st_bbox(roads)
-st_bbox(grids)
-
-# Step 1 — transform roads to WGS84 to match grids
-roads <- st_transform(roads, crs = 4326)
-
-# Verify bounding boxes now match
-st_bbox(roads)
-
-# Quick visual check — do they plot on top of each other?
-
-plot(st_geometry(grids_sf))
-plot(st_geometry(roads), add = TRUE, col = "red")
-```
-
-Now let us do canopy cover and canopy height
-
-```{r}
-
-# Make sure both are in UTM 46N
-roads_proj <- st_transform(roads, crs = 32646)
-grids_proj <- st_transform(grids_sf, crs = 32646)
-
-# Fix geometries
-roads_proj <- st_make_valid(roads_proj)
-grids_proj <- st_make_valid(grids_proj)
-
-# Initialize results dataframe
-results <- data.frame(fid = integer(), road_length_m = numeric())
-
-# Loop through each grid one by one
-for (i in 1:nrow(grids_proj)) {
-  
-  # Get single grid
-  single_grid <- grids_proj[i, ]
-  fid_val     <- single_grid$fid
-  
-  # Intersect roads with this grid
-  roads_clipped <- tryCatch(
-    st_intersection(roads_proj, single_grid),
-    error = function(e) NULL   # if intersection fails, return NULL
-  )
-  
-  # Calculate total road length in this grid
-  if (is.null(roads_clipped) || nrow(roads_clipped) == 0) {
-    total_length <- 0
-  } else {
-    total_length <- sum(as.numeric(st_length(roads_clipped)), na.rm = TRUE)
-  }
-  
-  # Append to results
-  results <- rbind(results, data.frame(fid = fid_val, road_length_m = total_length))
-  
-  # Progress tracker
-  cat("Processed grid", i, "of", nrow(grids_proj), "| fid:", fid_val, "| length:", round(total_length, 1), "m\n")
-}
-
-# Check results
-head(results)
-summary(results$road_length_m)
-sum(results$road_length_m == 0)   # how many grids have no roads
-```
-
-I realised that the drids are not all square shaped so I will replace
+I realized that the grids are not all square shaped so I will replace
 the geometry with an un adulterated grid set
 
 ```{r}
@@ -152,5 +83,77 @@ st_write(naive_grids, "final-grids-with-data.gpkg")
 ## correcting sampled grids
 naive_grids <- st_read("spatial-data/final-grids-with-data.shp")
 sampled_grids <- naive_grids %>% st_transform(crs = 4326) %>% filter(fid %in% data_grids_clean$fid) %>% dplyr::mutate(fid = as.integer(fid))
-st_write(sampled_grids, "spatial-data/sampled-grids.shp")
+st_write(sampled_grids, "spatial-data/sampled-grids.gpkg")
+```
+
+### Now let us do aspect
+
+We will process the tif in qgis and use r to stitch the covariates
+
+```{r}
+library(terra)
+
+# List all tif files in folder
+tiles <- list.files("spatial-data/canopy-height-2020/", pattern = "\\.tif$", full.names = TRUE)
+
+# Now we will calculate mean canopy height in our grids
+
+# Match CRS
+grids <- st_read("spatial-data/covariate-calcs/final-grids-with-data.shp")
+raster <- terra::rast("spatial-data/canopy-height-2020/ETH_GlobalCanopyHeight_10m_2020_N24E090_Map.tif")
+grids <- st_transform(grids, crs(raster))
+
+# Extract mean per grid polygon
+vrt_raster <- vrt(tiles)
+
+# Use it directly for extraction without saving
+values_canopy_height <- terra::extract(vrt_raster, vect(grids), fun = mean, na.rm = TRUE)
+
+grids <- grids %>% mutate(fid = as.integer(fid))
+st_write(grids, "final-grids-with-data-canopy.gpkg")
+write.csv(grids, "final-grids-with-data-canopy.csv")
+```
+
+Add these to the covariates table so that we can get rid of the
+subsidairy variables
+
+```{r}
+covariates <- read.delim("data/processed/covariates-full-elevation-roads.txt")
+
+covariates <- covariates %>%
+  dplyr::left_join(
+    grids %>% dplyr::select(fid, canopy_height),  # replace with actual column name
+    by = c("grid.id" = "fid")
+  ) %>% select(-geometry.x, -canopy_height.x) %>% rename(geometry = geometry.y, canopy_height=canopy_height.y)
+
+## add slope
+slope <- st_read("final-grids-with-data-slope.shp")
+
+covariates <- covariates %>%
+  dplyr::left_join(
+    slope %>% dplyr::select(fid, slope),
+    by = c("grid.id" = "fid")
+  ) 
+covariates <- covariates %>% select(-geometry.x) %>% rename(geometry = geometry.y)
+
+### repeat for aspect
+
+aspect_rast <- rast("spatial-data/covariate-calcs/dem_ap_srtm_aspect.tif")
+
+grids <- st_read("spatial-data/covariate-calcs/final-grids-with-data.shp")
+
+grids_aspect <- terra::extract(aspect_rast, vect(grids), fun = mean, na.rm = TRUE)
+grids$aspect <- grids_aspect$dem_ap_srtm_aspect
+covariates <- covariates %>%
+  dplyr::left_join(
+    grids %>% dplyr::select(fid, aspect),
+    by = c("grid.id" = "fid")
+  ) 
+covariates <- covariates %>% select(-geometry.x) %>% rename(geometry = geometry.y)
+
+grids$canopy_height <- values_canopy_height$spat_57cc573f7c9c_22476_zxzxx9jyyx6UnnI
+grids$slope <- slope$slope
+
+write.csv(grids, "spatial-data/covariate-calcs/grids-with-aspect-canopy-height-slope.csv")
+write_tsv(covariates, "data/processed/covariates-full-elevation-roads-aspect-canopy-height-slope.txt")
 ```
