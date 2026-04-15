@@ -86,9 +86,7 @@ sampled_grids <- naive_grids %>% st_transform(crs = 4326) %>% filter(fid %in% da
 st_write(sampled_grids, "spatial-data/sampled-grids.gpkg")
 ```
 
-### Now let us do aspect
-
-We will process the tif in qgis and use r to stitch the covariates
+### Now let us do canopy height
 
 ```{r}
 library(terra)
@@ -156,4 +154,160 @@ grids$slope <- slope$slope
 
 write.csv(grids, "spatial-data/covariate-calcs/grids-with-aspect-canopy-height-slope.csv")
 write_tsv(covariates, "data/processed/covariates-full-elevation-roads-aspect-canopy-height-slope.txt")
+```
+
+### Area under various classes 
+
+```{r}
+library(sf)
+library(dplyr)
+
+# Load LULC shapefile
+lulc <- st_read("spatial-data/area-under/LULC/NRSC_LULC.shp")
+grids <- st_read("spatial-data/covariate-calcs/final-grids-with-data.shp")   # or .gpkg
+
+# Check column names — find which column has the class names
+names(lulc)
+head(lulc)
+
+# Check unique class names (exact spelling matters)
+  unique(lulc$LULC_Class)   # replace 'class' with your actual column name
+  
+st_crs(lulc)
+st_crs(grids)
+
+# Project both to UTM 46N for area in metres
+lulc  <- st_transform(lulc,  crs = 32646)
+grids <- st_transform(grids, crs = 32646)
+
+# Fix invalid geometries
+lulc  <- st_make_valid(lulc)
+grids <- st_make_valid(grids)
+
+classes_of_interest <- c(
+  "Shifting Cultivation",
+  "Scrub Forest",
+  "Evergreen Forest\r\nEvergreen Forest",
+  "Deciduous Forest",
+  "Alpine/Sub Alpine",
+  "Agricuture"
+)
+
+# Filter — adjust names to exactly match unique(lulc$class) output
+lulc_filtered <- lulc %>%
+  dplyr::filter(LULC_Class %in% classes_of_interest)
+
+lulc_in_grids <- st_intersection(lulc_filtered, grids)
+
+lulc_area <- lulc_in_grids %>%
+  dplyr::mutate(area_m2 = as.numeric(st_area(geometry))) %>%
+  dplyr::group_by(fid, LULC_Class) %>%
+  dplyr::summarise(area_m2 = sum(area_m2, na.rm = TRUE)) %>%
+  st_drop_geometry()
+
+head(lulc_area)
+
+library(tidyr)
+library(janitor)
+
+lulc_wide <- lulc_area %>%
+  tidyr::pivot_wider(
+    names_from  = LULC_Class,
+    values_from = area_m2,
+    values_fill = 0        # grids with no coverage of a class get 0
+  )
+
+# Clean column names
+names(lulc_wide) <- janitor::make_clean_names(names(lulc_wide))
+
+write.table(lulc_wide, "area-under-lulc-grids.txt", sep = "\t")
+
+### Now add them to the covariates table 
+covariates <- read.delim("data/processed/covariates-full-elevation-roads-aspect-canopy-height-slope.txt")
+
+covariates_area <- covariates %>%
+  dplyr::left_join(
+    lulc_wide,
+    by = c("grid.id" = "fid")
+  )
+
+
+covariates_area$evergreen_deciduous_forest <- covariates_area$evergreen_forest_evergreen_forest + covariates_area$deciduous_forest
+
+covariates_area <- select(covariates_area, -evergreen_forest_evergreen_forest, -deciduous_forest)
+
+write.table(covariates_area, "spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under.txt", sep = "\t")
+```
+
+**Now we need to do the same for protected areas**
+
+```{r}
+
+# Load PAs shapefile
+pas <- st_read("spatial-data/area-under/PAs/TR-PA-corridor-NTCA.shp")
+grids <- st_read("spatial-data/covariate-calcs/final-grids-with-data.shp")   # or .gpkg
+
+# Check column names — find which column has the class names
+names(pas)
+head(pas)
+
+# Check unique class names (exact spelling matters)
+  unique(lulc$LULC_Class)   # replace 'class' with your actual column name
+  
+st_crs(pas)
+st_crs(grids)
+
+# Project both to UTM 46N for area in metres
+pas  <- st_transform(pas,  crs = 32646)
+grids <- st_transform(grids, crs = 32646)
+
+# Fix invalid geometries
+pas  <- st_make_valid(pas)
+grids <- st_make_valid(grids)
+
+
+pas_in_grids <- st_intersection(pas, grids)
+
+pas_area <- pas_in_grids %>%
+  dplyr::mutate(area_m2 = as.numeric(st_area(geometry))) %>%
+  dplyr::group_by(fid) %>%
+  dplyr::summarise(area_m2 = sum(area_m2)) %>%
+  st_drop_geometry()
+
+head(pas_area)
+
+# Clean column names
+pas_area <- pas_area %>%
+  dplyr::rename(area_pa = area_m2)
+
+### Now add them to the covariates table 
+covariates <- read.delim("spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under.txt")
+
+covariates_pa_area <- covariates %>%
+  dplyr::left_join(
+    pas_area,
+    by = c("grid.id" = "fid")
+  )
+
+
+write.table(covariates_pa_area, "spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under-pa.txt", sep = "\t")
+```
+
+Now we will add NDVI as a co-variate, which will serve as a proxy for
+canopy cover.
+
+```{r}
+
+covariates <- read.delim("spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under-pa.txt")
+ndvi_nov <- read.csv("spatial-data/covariate-calcs/all-grids-data-ndvi-nov-mean.csv")
+ndvi_nov <- ndvi_now[, c(1,5)]
+covariates <- covariates %>%
+  dplyr::left_join(
+    ndvi_nov %>% dplyr::select(fid, NDVI_maymean),  # replace with actual column name
+    by = c("grid.id" = "fid")
+  ) 
+
+write.table(covariates_pa_area, "spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under-pa-ndvi.txt", sep = "\t")
+
+
 ```
