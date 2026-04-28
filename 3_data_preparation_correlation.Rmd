@@ -1,0 +1,291 @@
+---
+title: "3_occupancy_modeling"
+author: "Ali Khan Faizee"
+date: "2026-04-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+data <- read.csv("data/processed/final-covariates.csv")
+det.cur <- read.delim("data/processed/all-hornbills-current-detections.csv", sep = ",")
+
+data.cur <- data %>% filter(grid.id %in% det.cur$grid.id)
+
+# now separate each of the observation covariates - Proportion of grid sampled
+
+wide_grid_sample <- data.cur %>% select(grid.id ,proportion.grid.24) %>%
+  dplyr::group_by(grid.id) %>%
+  dplyr::mutate(replicate = paste0("X", row_number())) %>%  # create X1, X2, X3...
+  dplyr::ungroup() %>%
+  tidyr::pivot_wider(
+    names_from  = replicate,
+    values_from = proportion.grid.24,
+    values_fill = NA          
+  )
+
+write.csv(wide_grid_sample, "data/processed/proportion-sampled-current.csv")
+
+#Frequency of visits to the grid
+
+wide_grid_sample <- data.cur %>% select(grid.id, frequency.visits.24) %>%
+  dplyr::group_by(grid.id) %>%
+  dplyr::mutate(replicate = paste0("X", row_number())) %>%  # create X1, X2, X3...
+  dplyr::ungroup() %>%
+  tidyr::pivot_wider(
+    names_from  = replicate,
+    values_from = frequency.visits.24,
+    values_fill = NA          
+  )
+
+write.csv(wide_grid_sample, "data/processed/visit-freq-current.csv")
+
+#Experience of the individual
+
+wide_grid_sample <- data.cur %>% select(grid.id, exp.indv) %>%
+  dplyr::group_by(grid.id) %>%
+  dplyr::mutate(replicate = paste0("X", row_number())) %>%  # create X1, X2, X3...
+  dplyr::ungroup() %>%
+  tidyr::pivot_wider(
+    names_from  = replicate,
+    values_from = exp.indv,
+    values_fill = NA          
+  )
+
+write.csv(wide_grid_sample, "data/processed/exp-current.csv")
+
+### Now we will separate the site covariates, and remove duplicates in grid.id column
+
+site.cov <- data.cur %>% 
+  select(grid.id, dist.to.grid, hunting.24, road_length, mean_elev, canopy_height, slope, aspect, agricuture, scrub_forest, shifting_cultivation, alpine_sub_alpine, evergreen_deciduous_forest, area_pa, ndvi_nov_mean)
+
+site.cov$hunting.24 <- ifelse(tolower(site.cov$hunting.24) == "yes", 1, 0)
+
+site.cov.fin <- aggregate(. ~ grid.id, data = site.cov, FUN = mean, na.rm = TRUE)
+
+site.cov.fin$hunting.24 <- ifelse(site.cov.fin$hunting.24 == "0", "no", "yes")
+
+write.csv(site.cov.fin, "data/processed/final-site-covariates.csv")
+```
+
+## 
+
+**Note that here we will be removing grid numbers so it is recommended
+to arrange all the dataframes in ascending order of the grid.id**
+
+```{r}
+## observational covariates: Proportion of grid sampled, visits to the grid, Experience of the individual
+
+prop_grid <- read.csv("data/processed/proportion-sampled-current.csv")
+
+prop_grid<-prop_grid |>  arrange(grid.id) |> select(c(X1:X4))   # detection covariate grid covered
+prop_grid[prop_grid == "-"] <- NA # replace - with NA
+prop_grid <- as.matrix(prop_grid)  # Ensure it's a matrix
+storage.mode(prop_grid) <- "numeric"  # Convert character values to numeric
+
+#visits to the grid
+visit_grid <- read.csv("data/processed/visit-freq-current.csv")
+
+visit_grid<-visit_grid |>  arrange(grid.id) |> select(c(X1:X4))   # detection covariate grid covered
+visit_grid[visit_grid == "-"] <- NA # replace - with NA
+visit_grid <- as.matrix(visit_grid)  # Ensure it's a matrix
+storage.mode(visit_grid) <- "numeric"  # Convert character values to numeric
+
+#Experience of the individual
+exp_grid <- read.csv("data/processed/exp-current.csv")
+
+exp_grid<-exp_grid |>  arrange(grid.id) |> select(c(X1:X4))   # detection covariate grid covered
+exp_grid[exp_grid == "-"] <- NA # replace - with NA
+exp_grid <- as.matrix(exp_grid)  # Ensure it's a matrix
+storage.mode(exp_grid) <- "numeric"  # Convert character values to numeric
+
+## Now for the site covariates
+
+site.cov<- read.csv("data/processed/final-site-covariates.csv")|>arrange(grid.id)
+write.table(site.cov, "results/arranged-final-site-cov.txt", sep = "\t")
+
+
+# find the correlation
+site.cov.num<- site.cov %>% select(dist.to.grid, road_length, mean_elev, canopy_height, slope, aspect, agricuture, scrub_forest, shifting_cultivation, alpine_sub_alpine, evergreen_deciduous_forest, area_pa, ndvi_nov_mean)          # site covariates
+site.cov.num <- as.matrix(site.cov.num)  # Ensure it's a matrix
+storage.mode(site.cov.num) <- "numeric"  # Convert character values to numeric
+site.cov.num<- as.data.frame(scale(site.cov.num)) # Convert to a data frame
+
+num_cols <- site.cov.num %>%
+  dplyr::select(where(is.numeric))
+
+# Calculate correlation matrix
+cor_matrix <- cor(num_cols, use = "complete.obs", method = "pearson")
+
+# View it
+print(cor_matrix)
+
+cor_df <- as.data.frame(cor_matrix)
+write.csv(cor_df, "results/correlation_matrix.csv", row.names = TRUE)
+
+library(corrplot)
+library(ggcorrplot)
+
+ggcorrplot(cor_matrix,
+           method    = "circle",   # or "square"
+           type      = "lower",
+           lab       = TRUE,       # show values
+           lab_size  = 2,
+           colors    = c("red", "green", "red"))
+
+ggsave("results/correlation_plot.png", width = 6, height = 9, units = "in", dpi = 600)
+
+#Thus, I chose to remove slope and NDVI
+```
+
+Finalizing site level covariates and detections
+
+```{r}
+
+#### now we are ready to make the unmarkedoccu object
+# we will first do for GH
+# remember to scale the obs covariates
+exp_grid <- scale(exp_grid) # scaling the covariate
+visit_grid <- scale(visit_grid) # scaling the covariate
+prop_grid <- scale(prop_grid) # scaling the covariate
+
+#### detection #### 
+det.cur <- read.delim("data/processed/all-hornbills-current-detections.csv", sep = ",")
+det.cur <- filter(det.cur, grid.id %in% site.cov$grid.id)
+det.cur<- det.cur |>  arrange(grid.id) |> select(grid.id, species, interview.1, interview.2, interview.3, interview4)
+det.cur <- det.cur %>%
+  dplyr::rename(
+    X1 = interview.1,
+    X2 = interview.2,
+    X3 = interview.3,
+    X4 = interview4
+  )
+
+#we will be using type 1 model so convert all the 1s to a conservative estimate - 0
+det.cur[det.cur == 1] <- 0
+#saving all the processed data
+#detection
+write.table(det.cur, "data/processed/det-cur-ready.txt", sep = "\t")
+#covariate sites
+site.cov.selected$grid.id <- det.cur.gh$grid.id
+write.table(site.cov.selected, "data/processed/site-covariate-cur-ready.txt", sep = "\t")
+#species-wise
+det.cur.gh <- det.cur %>% filter(species == "GH") %>% arrange(grid.id)
+write.table(det.cur.gh, "data/processed/gh-det-cur-ready.txt", sep = "\t")
+
+det.cur.wh <- det.cur %>% filter(species == "WH") %>% arrange(grid.id)
+write.table(det.cur.wh, "data/processed/wh-det-cur-ready.txt", sep = "\t")
+
+det.cur.oph <- det.cur %>% filter(species == "OPH") %>% arrange(grid.id)
+write.table(det.cur.oph, "data/processed/oph-det-cur-ready.txt", sep = "\t")
+
+det.cur.rnh <- det.cur %>% filter(species == "RNH") %>% arrange(grid.id)
+write.table(det.cur.rnh, "data/processed/rnh-det-cur-ready.txt", sep = "\t")
+
+write.table(exp_grid, "exp-current.txt", sep = "\t")
+write.table(prop_grid, "prop-current.txt", sep = "\t")
+write.table(visit_grid, "visit-current.txt", sep = "\t")
+```
+
+Further remove correlated variables
+
+```{r}
+# find the correlation
+library(corrplot)
+library(ggcorrplot)
+
+site.cov.num<- site.cov.selected %>% select(dist.to.grid, road_length, mean_elev, canopy_height, aspect, agricuture, scrub_forest, shifting_cultivation, alpine_sub_alpine, evergreen_deciduous_forest, area_pa)          # site covariates
+site.cov.num <- as.matrix(site.cov.num)  # Ensure it's a matrix
+storage.mode(site.cov.num) <- "numeric"  # Convert character values to numeric
+site.cov.num.df<- as.data.frame(scale(site.cov.num)) # Convert to a data frame
+
+
+# Calculate correlation matrix
+cor_matrix <- cor(site.cov.num.df, use = "complete.obs", method = "pearson")
+
+# View it
+print(cor_matrix)
+
+cor_df <- as.data.frame(cor_matrix)
+write.csv(cor_df, "results/correlation_matrix_2.csv", row.names = TRUE)
+
+
+
+ggcorrplot(cor_matrix,
+           method    = "circle",   # or "square"
+           type      = "lower",
+           lab       = TRUE,       # show values
+           lab_size  = 2,
+           colors    = c("red", "green", "red"))
+ggsave("results/correlation_plot_2.png", width = 6, height = 9, units = "in", dpi = 600)
+```
+
+Adding population
+
+```{r}
+all_grid_pop <- read.delim("spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under-pa-ndvi-population.txt",sep = "\t")
+
+ready_covs <- read.delim("results/arranged-final-site-cov.txt", sep = "\t")
+
+ready_covs <- ready_covs %>% left_join(all_grid_pop %>% select(grid.id, X_populationmean), )
+
+ready_covs <- ready_covs %>%
+  dplyr::left_join(
+    pop_2015 %>% dplyr::select(fid, X_populationmean),  # replace with actual column name
+    by = c("grid.id" = "fid")
+  ) %>% select(-X)
+  
+write.table(ready_covs, "results/arranged-final-site-cov.txt", sep = "\t", row.names = FALSE)
+```
+
+Correlation again
+
+```{r}
+site.cov.selected <- read.delim("results/arranged-final-site-cov.txt", sep = "\t")
+site.cov.num<- site.cov.selected %>% select(dist.to.grid, road_length, mean_elev, canopy_height, aspect, agricuture, shifting_cultivation, evergreen_deciduous_forest, area_pa, X_populationmean.x)          # site covariates
+site.cov.num <- as.matrix(site.cov.num)  # Ensure it's a matrix
+storage.mode(site.cov.num) <- "numeric"  # Convert character values to numeric
+site.cov.num.df<- as.data.frame(scale(site.cov.num)) # Convert to a data frame
+
+
+# Calculate correlation matrix
+cor_matrix <- cor(site.cov.num.df, use = "complete.obs", method = "pearson")
+
+# View it
+print(cor_matrix)
+
+cor_df <- as.data.frame(cor_matrix)
+write.csv(cor_df, "results/correlation_matrix_3.csv", row.names = TRUE)
+
+
+
+ggcorrplot(cor_matrix,
+           method    = "circle",   # or "square"
+           type      = "lower",
+           lab       = TRUE,       # show values
+           lab_size  = 2,
+           colors    = c("red", "green", "red"))
+ggsave("results/correlation_plot_3.png", width = 6, height = 9, units = "in", dpi = 600)
+
+#covariate sites
+site.cov.selected$grid.id <- det.cur.gh$grid.id
+write.table(site.cov.selected, "data/processed/site-covariate-cur-ready.txt", sep = "\t")
+
+# add back the hunting and grid.id
+site.cov.selected <- read.delim("results/arranged-final-site-cov.txt", sep = "\t")
+site.cov.num<- site.cov.selected %>% select(dist.to.grid, road_length, mean_elev, canopy_height, aspect, agricuture, shifting_cultivation, evergreen_deciduous_forest, area_pa, X_populationmean.x)          # site covariates
+site.cov.num <- as.matrix(site.cov.num)  # Ensure it's a matrix
+storage.mode(site.cov.num) <- "numeric"  # Convert character values to numeric
+site.cov.num.df<- as.data.frame(scale(site.cov.num)) # Convert to a data frame
+
+site.cov.num.df$grid.id <- site.cov.selected$grid.id
+site.cov.num.df$hunting.24 <- site.cov.selected$hunting.24
+
+write.table(site.cov.num.df, "results/site-covariate-cur-ready.txt", sep = "\t", row.names = FALSE)
+```

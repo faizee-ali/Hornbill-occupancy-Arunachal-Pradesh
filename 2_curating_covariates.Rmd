@@ -156,7 +156,7 @@ write.csv(grids, "spatial-data/covariate-calcs/grids-with-aspect-canopy-height-s
 write_tsv(covariates, "data/processed/covariates-full-elevation-roads-aspect-canopy-height-slope.txt")
 ```
 
-### Area under various classes 
+### Area under various classes
 
 ```{r}
 library(sf)
@@ -300,14 +300,30 @@ canopy cover.
 
 covariates <- read.delim("spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under-pa.txt")
 ndvi_nov <- read.csv("spatial-data/covariate-calcs/all-grids-data-ndvi-nov-mean.csv")
-ndvi_nov <- ndvi_now[, c(1,5)]
+ndvi_nov <- ndvi_nov[, c(1,5)]
 covariates <- covariates %>%
   dplyr::left_join(
     ndvi_nov %>% dplyr::select(fid, NDVI_maymean),  # replace with actual column name
     by = c("grid.id" = "fid")
   ) 
 
-write.table(covariates_pa_area, "spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under-pa-ndvi.txt", sep = "\t")
+write.table(covariates, "spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under-pa-ndvi.txt", sep = "\t")
+
+
+```
+
+Now add population as another co-variate
+
+```{r}
+covariates <- read.delim("spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under-pa-ndvi.txt")
+pop_2015 <- read.csv("spatial-data/covariate-calcs/population-2015.csv")
+covariates <- covariates %>%
+  dplyr::left_join(
+    pop_2015 %>% dplyr::select(fid, X_populationmean),  # replace with actual column name
+    by = c("grid.id" = "fid")
+  ) 
+
+write.table(covariates, "spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under-pa-ndvi-population.txt", sep = "\t")
 
 
 ```

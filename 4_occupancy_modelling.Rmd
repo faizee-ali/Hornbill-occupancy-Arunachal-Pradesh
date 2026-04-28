@@ -1,0 +1,645 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Load necessary data
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(unmarked)
+library(AICcmodavg)
+library(combinat)
+```
+
+Modelling for Great Hornbill
+
+```{r}
+det.cur <- read.delim("results/gh-det-cur-ready.txt") %>%
+  dplyr::mutate(across(3:6, ~ifelse(. == 2, 1, .))) 
+
+site.cov.selected <- read.delim("results/site-covariate-cur-ready.txt") %>% select(-grid.id)
+exp_grid <- read.delim("results/exp-current.txt")
+visit_grid <- read.delim("results/visit-current.txt")
+prop_grid <- read.delim("results/prop-current.txt")
+
+umf<- unmarkedFrameOccu(y = det.cur[,3:6],
+                          siteCovs = site.cov.selected,
+                          obsCovs = list(experience = exp_grid, 
+                                         visit = visit_grid,
+                                         proportion = prop_grid)
+                         )     # creating unmarked occupancy data frame
+
+summary(umf)
+
+# Null model baseline
+fm <- occu(formula = ~ 1 
+                     ~ 1,
+           data = umf)
+
+summary(fm)
+backTransform(fm, type = "state")
+## report the Psi values for the null model - GH = 0.3317373	+- 0.0.05195	
+
+#this is the naive occupancy for GH, which matches our previous manual calculation.
+backTransform(fm, type = "det")
+
+```
+
+**Now, to add some covariates. First, assuming constant detection:**
+
+### Step 1 — Fit Global Detection Model (Ψ = null)
+
+model selection for *p* while keeping the null model of Ψ constant
+
+```{r}
+# Global detection model with null occupancy
+#include all the covariates that can affect detection probability
+global_det <- occu(~experience + visit + proportion + hunting.24 + shifting_cultivation + evergreen_deciduous_forest + dist.to.grid + canopy_height + road_length + agricuture #detection fx
+                   ~1, # occupancy fx (here constant)
+                   data = umf) 
+summary(global_det)
+```
+
+### Step 2 — Simplify Global Detection Model
+
+Exclude covariates where SE \>= \|β\|:
+
+```{r}
+# Extract detection coefficients and SEs
+det_coefs <- as.data.frame(summary(global_det)$det)
+det_coefs
+
+# Flag covariates where SE >= |beta|
+det_coefs$exclude <- abs(det_coefs$SE) >= abs(det_coefs$Estimate)
+det_coefs
+
+#Keep only covariates where SE < |beta| and refit: remove proportion
+simplified_global_det <-occu(~ visit + hunting.24 + shifting_cultivation + evergreen_deciduous_forest + road_length #detection fx
+                   ~1, # occupancy fx (here constant)
+                   data = umf)
+simplified_global_det_summary <- summary(simplified_global_det)
+```
+
+### Note: we found that the following are not explanatory covariates for P:
+
+experience, proportion, dist.to.grid, canopy_height, and agriculture
+
+meaning it does not affect the detection probability for Great Hornbill.
+
+#### Step 3 — GOF on Simplified Global Detection Model
+
+```{r}
+gof_det <- mb.gof.test(simplified_global_det, nsim = 1000, plot.hist = TRUE)
+chat_det <- gof_det$c.hat.est
+cat("c-hat for detection:", chat_det, "\n")
+#c-hat for detection: 1.067564  
+```
+
+### P = 0.293
+
+This is the proportion of simulated statistics that exceeded your
+observed statistic. A p-value of **0.408 means no significant lack of
+fit** — your model fits the data well. You want p \> 0.05, and 0.408 is
+comfortably above that.
+
+### Observed = 34.85
+
+This is your actual test statistic from the data.
+
+**c-hat for detection:**
+
+```         
+1.067564 
+```
+
+A c-hat close to 1 means **no overdispersion**, so your QAICc and AICc
+values will be very similar. Your model assumptions are not violated and
+you can proceed
+
+### Step 4 — Build Competing Detection Models
+
+Using only the remaining covariates after simplification:
+
+```{r}
+covs <- c("visit", "hunting.24", "shifting_cultivation",      
+          "evergreen_deciduous_forest", "road_length")
+
+# Occupancy formula (null)
+occ_formula_str <- "~1"
+
+# Generate all combinations
+all_combos <- list()
+
+# Null model
+all_combos[[1]] <- occu(formula(paste("~1", occ_formula_str)), data = umf)
+names(all_combos)[1] <- "null"
+
+# Single covariates (6 models)
+for (i in seq_along(covs)) {
+  combo_name <- covs[i]
+  formula_str <- paste("~", covs[i], occ_formula_str)
+  all_combos[[i + 1]] <- occu(formula(formula_str), data = umf)
+  names(all_combos)[i + 1] <- combo_name
+}
+
+# All combinations of 2+ covariates
+counter <- length(all_combos) + 1
+
+for (n in 2:length(covs)) {
+  combos_n <- combn(covs, n, simplify = FALSE)
+  
+  for (combo in combos_n) {
+    combo_name <- paste(combo, collapse = "_")
+    formula_str <- paste("~", paste(combo, collapse = " + "), occ_formula_str)
+    
+    tryCatch({
+      all_combos[[counter]] <- occu(formula(formula_str), data = umf)
+      names(all_combos)[counter] <- combo_name
+      counter <- counter + 1
+    }, error = function(e) {
+      cat("Failed to fit:", combo_name, "\n")
+    })
+  }
+}
+
+# Remove duplicates (just in case)
+all_combos <- all_combos[!duplicated(names(all_combos))]
+# Remove models with convergence issues
+det_model_list <- Filter(function(m) m@opt$convergence == 0, all_combos)
+
+cat("Total models fitted:", length(det_model_list), "\n")
+#Total models fitted: 64 
+
+cat("Models with convergence issues removed.\n")
+
+# QAICc model selection
+step1_table <- aictab(
+  cand.set = det_model_list,
+  modnames = names(det_model_list),
+  c.hat    = chat_det  # use your c-hat from Step 8
+)
+
+
+# Top models within delta QAICc <= 2
+cat("\nTop occupancy models (delta QAICc <= 2):\n")
+step1_table_filtered <- step1_table[step1_table$Delta_QAICc <= 2, ]
+print(step1_table[step1_table$Delta_QAICc <= 2, ])
+
+
+
+```
+
+3 models are within ΔAICc \< 2
+
+**Choose the simplest model with 4 covariates:**
+
+```{r}
+best_det_formula_1 <- ~visit + hunting + shifting_cultivation
+best_det_formula_2 <- ~visit + area_pa + shifting_cultivation
+```
+
+```         
+```
+
+But to be sure let us do another fitcheck with these two models, a more
+penalizing one.
+
+```{r}
+fitstats <- function(model.name, 
+                     method = "nonparboot") {
+  
+  observed <- getY(model.name@data)
+  expected <- fitted(model.name)
+  
+  resids <- residuals(model.name,
+                      method = "nonparboot")
+  
+  sse <- sum(resids^2,
+             na.rm = TRUE)
+  
+  chisq <- sum((observed - expected)^2 / expected,
+               na.rm = TRUE)
+  
+  freeTuke <- sum((sqrt(observed) - sqrt(expected))^2, 
+                  na.rm = TRUE)
+  
+  out <- c(SSE = sse,
+           Chisq = chisq,
+           freemanTukey = freeTuke)
+  
+  return(out)
+  
+}
+
+pb <- parboot(det_model_list$visit_hunting_shifting_cultivation,
+              fitstats,
+              nsim = 1000,
+              report = TRUE,
+              method = "nonparboot")
+
+pb
+
+par(mfrow = c(3,1))
+
+plot(pb,
+     main = "",
+     xlab = c("SSE", "Chisq", "FT"))
+
+#Parametric Bootstrap Statistics:
+ #               t0 mean(t0 - t_B) StdDev(t0 - t_B) Pr(t_B > t0)
+#SSE           42.7           1.78             4.03        0.344
+#Chisq        224.7          10.96            57.61        0.290
+#freemanTukey  56.6           2.54             4.65        0.309
+
+```
+
+You see all the p values are \>\> 0.5 so this model(global) is a good
+fit.
+
+**Now for the next best model - visit_hunt_shift**
+
+```{r}
+pb <- parboot(det_model_list$visit_hunting.24_shifting_cultivation_evergreen_deciduous_forest,
+              fitstats,
+              nsim = 1000,
+              report = TRUE,
+              method = "nonparboot")
+
+pb
+
+par(mfrow = c(3,1))
+
+plot(pb,
+     main = "",
+     xlab = c("SSE", "Chisq", "FT"))
+
+```
+
+You see all the p values are \>\> 0.5 so this model is a good fit.
+
+Let us use
+**visit_hunting.24_shifting_cultivation_evergreen_deciduous_forest**
+model for modelling occupancy because it has a better QAICc score and
+weight.
+
+### Step 6 — Fit Global Occupancy Model (fix best detection)
+
+```{r}
+best_det_formula <- ~visit + hunting.24 + shifting_cultivation + evergreen_deciduous_forest # 
+
+# Global occupancy model
+global_occ <- occu(~ visit + hunting.24 + shifting_cultivation 
+                   + evergreen_deciduous_forest 
+                   ~ hunting.24 + shifting_cultivation + mean_elev 
+                   + road_length + area_pa + evergreen_deciduous_forest
+                   + canopy_height
+                   + aspect + agricuture + X_populationmean.x,
+                   data = umf)
+
+summary(global_occ)
+```
+
+#### Step 7 — Simplify Global Occupancy Model
+
+```{r}
+# Extract occupancy coefficients and SEs
+occ_coefs <- as.data.frame(summary(global_occ)$state)
+occ_coefs
+
+# Flag covariates where SE >= |beta|
+occ_coefs$exclude <- abs(occ_coefs$SE) >= abs(occ_coefs$Estimate)
+occ_coefs
+
+# Keep covariates where exclude == FALSE
+retained_occ_covs <- rownames(occ_coefs[occ_coefs$exclude == FALSE, ])
+retained_occ_covs   # these go into competing models
+```
+
+Very interstingly we find that, the following have \|SE\| \> the beta
+estimates:
+
+hunting and canopy height!
+
+indicating they do not have a significant effect on the occupancy of GH.
+
+**Before going ahead**
+
+#### WE note the relations of covariates on the occupancy of gh inferred by the global occupancy model
+
+|                          |               |           |      |
+|-------------------------:|---------------|-----------|------|
+| **shifting_cultivation** | -2.4760111057 | 0.8497413 | =1.5 |
+
+|               |               |           |       |
+|--------------:|---------------|-----------|-------|
+| **mean_elev** | -0.9065496463 | 0.4193977 | =-0.5 |
+
+|                 |              |           |       |
+|----------------:|--------------|-----------|-------|
+| **road_length** | 0.7670032689 | 0.5071199 | =0.25 |
+
+|             |              |           |      |
+|------------:|--------------|-----------|------|
+| **area_pa** | 0.4186929124 | 0.3182728 | =0.1 |
+
+|                                |               |           |       |
+|-------------------------------:|---------------|-----------|-------|
+| **evergreen_deciduous_forest** | -1.3140488285 | 1.0400070 | =-0.3 |
+
+|            |              |           |       |
+|-----------:|--------------|-----------|-------|
+| **aspect** | 0.6925081174 | 0.3610485 | =0.33 |
+
+|                |               |           |       |
+|---------------:|---------------|-----------|-------|
+| **agricuture** | -1.5699133081 | 0.8178116 | =-0.7 |
+
+|                        |               |           |       |
+|-----------------------:|---------------|-----------|-------|
+| **X_populationmean.x** | -0.6788002701 | 0.6241253 | =0.01 |
+
+**Refit simplified global:**
+
+```{r}
+#  after exclusion
+simplified_global_occ <- occu(~ visit + hunting.24 + shifting_cultivation 
+                   + evergreen_deciduous_forest 
+                   ~ shifting_cultivation + mean_elev 
+                   + road_length + area_pa + evergreen_deciduous_forest
+                   + aspect + agricuture + X_populationmean.x,
+                   data = umf)
+```
+
+#### Step 8 — GOF on Simplified Global Occupancy Model
+
+```{r}
+gof_occ  <- mb.gof.test(simplified_global_occ, nsim = 1000, plot.hist = TRUE)
+chat_occ <- gof_occ$c.hat.est
+cat("c-hat for occupancy:", chat_occ, "\n")
+#1.431156
+
+```
+
+```         
+Chi-square statistic = 44.8207 
+Number of bootstrap samples = 1000
+P-value = 0.116
+
+Quantiles of bootstrapped statistics:
+   0%   25%   50%   75%  100% 
+  8.1  21.7  27.5  35.8 362.1 
+
+Estimate of c-hat = 1.43
+```
+
+the goodness of fit test here reveals one concern - mild overdispersion
+c.hat = 1.43 (it should be close to 1). this is also evident in the
+histogram of fit statistic, our chi-square statistic is 44.8 which is
+some distance from the median of the simulated statistics.
+
+two options
+
+1.  go ahead with QAICc model selection by spefying c.hat in sicmodelavg
+    function - accepted in literature
+2.  Use a different detection model
+
+**Let's try with a simpler detection model.**
+
+```{r}
+best_det_formula <- ~visit + hunting.24 + shifting_cultivation # 2nd best detection model
+
+# Global occupancy model
+global_occ_2 <- occu(~ visit + hunting.24 + shifting_cultivation 
+                   ~ shifting_cultivation + mean_elev 
+                   + road_length + area_pa + evergreen_deciduous_forest
+                   + aspect + agricuture + X_populationmean.x,
+                   data = umf)
+
+summary(global_occ_2)
+
+### simplify occu model
+# Extract occupancy coefficients and SEs
+occ_coefs <- as.data.frame(summary(global_occ_2)$state)
+occ_coefs
+
+# Flag covariates where SE >= |beta|
+occ_coefs$exclude <- abs(occ_coefs$SE) >= abs(occ_coefs$Estimate)
+occ_coefs
+
+# Keep covariates where exclude == FALSE
+retained_occ_covs <- rownames(occ_coefs[occ_coefs$exclude == FALSE, ])
+retained_occ_covs   # these go into competing models
+
+### refit
+# Example after exclusion
+simplified_global_occ <- occu(~ visit + hunting.24 + shifting_cultivation
+                   ~ shifting_cultivation + mean_elev 
+                   + road_length
+                   + aspect + agricuture,
+                   data = umf)
+
+### gof test
+gof_occ  <- mb.gof.test(simplified_global_occ, nsim = 1000, plot.hist = TRUE)
+chat_occ <- gof_occ$c.hat.est
+cat("c-hat for occupancy:", chat_occ, "\n")
+
+```
+
+```{r}
+chat_occ <- gof_occ$c.hat.est
+cat("c-hat for occupancy:", chat_occ, "\n")
+
+```
+
+```         
+c-hat for occupancy: 1.284274  
+```
+
+c-hat is now closer to 1! however only by a margin, yet we loose on
+important variables like human population, area under forest. So let us
+use the first model only but with caution and explicitely providing
+c-hat whenever assessing the further models.
+
+#### Step 9 — Build All Competing Occupancy Models
+
+Build singular and all additive combinations of retained covariates:
+
+Instead of typing 128 models, use this function
+
+```{r}
+
+# Your retained occupancy covariates
+
+covs <- c("shifting_cultivation", "mean_elev", "road_length", 
+          "area_pa", "evergreen_deciduous_forest", "aspect", "agricuture", "X_populationmean.x")
+
+# Detection formula
+det_formula_str <- "~visit + hunting.24 + shifting_cultivation+evergreen_deciduous_forest "
+
+# Generate all combinations
+all_combos <- list()
+
+# Null model
+all_combos[[1]] <- occu(formula(paste(det_formula_str, "~1")), data = umf)
+names(all_combos)[1] <- "null"
+
+# Single covariates (7 models)
+for (i in seq_along(covs)) {
+  combo_name <- covs[i]
+  formula_str <- paste(det_formula_str, "~", covs[i])
+  all_combos[[i + 1]] <- occu(formula(formula_str), data = umf)
+  names(all_combos)[i + 1] <- combo_name
+}
+
+# All combinations of 2+ covariates
+for (n in 2:length(covs)) {
+  combos_n <- combn(covs, n, simplify = FALSE)
+  
+  for (combo in combos_n) {
+    combo_name <- paste(combo, collapse = "_")
+    formula_str <- paste(det_formula_str, "~", paste(combo, collapse = " + "))
+    
+    tryCatch({
+      all_combos[[length(all_combos) + 1]] <- occu(formula(formula_str), data = umf)
+      names(all_combos)[length(all_combos)] <- combo_name
+    }, error = function(e) {
+      cat("Failed to fit:", combo_name, "\n")
+    })
+  }
+}
+
+# Remove models with convergence issues
+occ_model_list <- Filter(function(m) m@opt$convergence == 0, all_combos)
+
+cat("Total models fitted:", length(occ_model_list), "\n")
+#Total models fitted: 503 
+
+cat("Models with convergence issues removed.\n")
+
+# QAICc model selection
+step2_table <- aictab(
+  cand.set = occ_model_list,
+  modnames = names(occ_model_list),
+  c.hat    = chat_occ  # use your c-hat from Step 8
+)
+
+print(step2_table)
+
+# Top models within delta QAICc <= 2
+cat("\nTop occupancy models (delta QAICc <= 2):\n")
+step2_table_filtered <- step2_table[step2_table$Delta_QAICc <= 2, ]
+print(step2_table_filtered)
+```
+
+#### Step 10: finding the averaged model
+
+Now that we have the top models for occupancy let us find the average
+model to find the occupancy of this species
+
+```{r}
+
+# Assuming your top 4 models are in a list
+top_models <- list(
+  model1 = occ_model_list[[73]],
+  model2 = occ_model_list[[109]],
+  model3 = occ_model_list[[32]],
+  model4 = occ_model_list[[104]]
+)
+
+# Model-averaged occupancy parameter
+## we have to use the anto logit function to extract the Backtransformed linear combination(s) of Occupancy estimate(s)
+
+antilogit <- function(x) { exp(x) / (1 + exp(x) ) }
+
+
+```
+
+Model 1
+
+```{r}
+selected_model <- occ_model_list[[106]]
+a <-summary(selected_model)
+#occupancy
+occu1 <- antilogit(-1.1706862)
+#0.2367
+det1 <- antilogit(0.7597004)
+#0.6812887
+
+```
+
+| Col1 | Col2 | Col3 | Col4 | Col5 |
+|------|------|------|------|------|
+|      |      |      |      |      |
+|      |      |      |      |      |
+|      |      |      |      |      |
+|      |      |      |      |      |
+|      |      |      |      |      |
+|      |      |      |      |      |
+
+```{r}
+#2
+top_models[[2]]
+#occupancy
+occu2 <- antilogit(-1.1033502)
+#0.2556014
+det2 <- antilogit(0.7569210)
+#0.6812887
+```
+
+```{r}
+#3
+top_models[[3]]
+#occupancy
+occu3 <- antilogit(-1.0911928)
+#0.2556014
+det3 <- antilogit(0.7808543)
+#0.6812887
+```
+
+```{r}
+#4
+top_models[[4]]
+#occupancy
+occu4 <- antilogit(-1.1876341)
+#0.2556014
+det4 <- antilogit(0.7620042)
+#0.6812887
+```
+
+### Now average these occupancy estimates
+
+```{r}
+avg_uccu_gh <- mean(occu1,occu2, occu3, occu4)
+avg_uccu_gh
+```
+
+remember the naive was 0.3317
+
+Greatest affectors :
+
+distance to grid : +
+
+shifting agriculture : -
+
+mean elevation : -
+
+road length : + but SE is \> beta
+
+Agriculture : -
+
+aspect : +
+
+in an sub-optimal model we found
+
+area_under_pa : +
+
+```{r}
+# road lenght
+antilogit(0.3785049)
+# beta = 0.5935125
+antilogit(0.751)
+# beta = 0.6793966
+
+```
