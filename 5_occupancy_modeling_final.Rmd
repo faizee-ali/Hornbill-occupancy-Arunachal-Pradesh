@@ -1,0 +1,364 @@
+---
+title: "5_occupancy_modelling_final"
+author: "Ali Khan Faizee"
+date: "2026-04-28"
+output: html_document
+---
+
+```{r}
+library(unmarked)
+library(AICcmodavg)
+library(MuMIn)
+library(openxlsx)
+library(dplyr)
+
+# SINGLE SPECIES OCCUPANCY MODEL SELECTION & MODEL AVERAGING
+# Great Hornbill, Arunachal Pradesh
+
+det.cur <- read.delim("results/gh-det-cur-ready.txt") %>%
+  dplyr::mutate(across(3:6, ~ifelse(. == 2, 1, .))) 
+
+site.cov.selected <- read.delim("results/site-covariate-cur-ready.txt") %>% select(-grid.id)
+exp_grid <- read.delim("results/exp-current.txt")
+visit_grid <- read.delim("results/visit-current.txt")
+prop_grid <- read.delim("results/prop-current.txt")
+
+umf<- unmarkedFrameOccu(y = det.cur[,3:6],
+                        siteCovs = site.cov.selected,
+                        obsCovs = list(experience = exp_grid, 
+                                       visit = visit_grid,
+                                       proportion = prop_grid)
+)     # creating unmarked occupancy data frame
+
+
+```
+
+Now we make the global detection model and remove the covariates which
+do not have significant associations with detection before we generate
+the competitive model set.
+
+```{r}
+# Null model baseline
+fm <- occu(formula = ~ 1 
+                     ~ 1,
+           data = umf)
+
+summary(fm)
+backTransform(fm, type = "state")
+## report the Psi values for the null model - GH = 0.3317373	+- 0.0.05195	
+
+#this is the naive occupancy for GH, which matches our previous manual calculation.
+backTransform(fm, type = "det")
+
+# Global detection model with null occupancy
+#include all the covariates that can affect detection probability
+global_det <- occu(~experience + visit + proportion + hunting.24 + shifting_cultivation + evergreen_deciduous_forest + dist.to.grid + canopy_height + road_length + agricuture #detection fx
+                   ~1, # occupancy fx (here constant)
+                   data = umf) 
+summary(global_det)
+
+# Extract detection coefficients and SEs
+det_coefs <- as.data.frame(summary(global_det)$det)
+det_coefs
+
+# Flag covariates where SE >= |beta|
+det_coefs$exclude <- abs(det_coefs$SE) >= abs(det_coefs$Estimate)
+retained_det_covs <- rownames(det_coefs[det_coefs$exclude == FALSE, ])
+retained_det_covs
+
+#Keep only covariates where SE < |beta| and refit: remove proportion
+simplified_global_det <-occu(~ visit + hunting.24 + shifting_cultivation + evergreen_deciduous_forest + road_length #detection fx
+                   ~1, # occupancy fx (here constant)
+                   data = umf)
+simplified_global_det_summary <- summary(simplified_global_det)
+```
+
+### Note: we found that the following are not explanatory covariates for P:
+
+experience, proportion, dist.to.grid, canopy_height, and agriculture
+
+meaning it does not affect the detection probability for Great Hornbill.
+
+#### Step 3 — GOF on Simplified Global Detection Model
+
+```{r}
+gof_det <- mb.gof.test(simplified_global_det, nsim = 1000, plot.hist = TRUE)
+chat_det <- gof_det$c.hat.est
+cat("c-hat for detection:", chat_det, "\n")
+#c-hat for detection: 1.067564  
+```
+
+```{r}
+
+# FIT DETECTION MODELS (occupancy null)
+
+cat("\n--- Fitting Detection Models ---\n")
+# Dredge selected detection models
+det_dred <- dredge(simplified_global_det, rank = "QAICc", trace = 2, chat = chat_det)
+det_models <- get.models(det_dred, subset=TRUE)
+
+
+```
+
+We saw that no single model has good enough weight to be relied upon and
+discard other models, we will use an approach outlined by Symon &
+Moussalli et al., 2010. ‘credibility set’ofmodels that are the most
+realistically likely to be the best approximating model (Burnham and
+Anderson 2002). proceeding down the list until the cumulative Akaike
+weight exceeds 0.95
+
+```{r}
+det_model_table <- aictab(
+  cand.set = det_models,
+  modnames = names(det_models),
+  c.hat    = chat_det  # use c-hat from Step 8
+)
+# GET TOP DETECTION MODELS (cumulative weight <= 95)
+
+# Build credible set (cumulative weight up to 0.95)
+det_credible_set <- det_model_table %>%
+  filter(Cum.Wt <= 0.95)
+
+cat("Number of models:", nrow(det_credible_set), "\n")
+cat("Cumulative QAICc weight:", round(max(det_credible_set$Cum.Wt), 4), "\n\n")
+#Number of models: 9 
+#Cumulative QAICc weight: 0.9477
+top_det_models <- get.models(det_dred, subset = as.numeric(rownames(det_credible_set)))
+#average the models in the dredible set
+ma_det <- model.avg(top_det_models, fit = TRUE, rank = "AICc", trace = 2, extra = "R^2", chat = chat_det)
+det_imp <- as.data.frame(MuMIn::sw(ma_det))
+
+det_imp
+```
+
+This suggests road_length is the least important,
+
+also as we see the model summary we find
+
+```{r}
+#save the average model
+save(ma_det, file = "results/GH-avg-sim-det-dred.Rdata")
+
+summary(ma_det)
+```
+
+p(road_legth) is (a) non-significant, (b) the beta estimate \~ \|SE\|,
+So I am considering removing it.
+
+### Fit Global Occupancy Model (fix best detection)
+
+```{r}
+best_det_formula <- ~visit + hunting.24 + shifting_cultivation + evergreen_deciduous_forest + road_length  
+
+# Global occupancy model
+global_occ <- occu(~ visit + hunting.24 + shifting_cultivation + 
+                     evergreen_deciduous_forest + road_length  
+                   ~ hunting.24 + shifting_cultivation + mean_elev 
+                   + road_length + area_pa + evergreen_deciduous_forest
+                   + canopy_height
+                   + aspect + agricuture + X_populationmean.x,
+                   data = umf)
+
+summary(global_occ)
+
+#Simplify Global Occupancy Model
+# Extract occupancy coefficients and SEs
+occ_coefs <- as.data.frame(summary(global_occ)$state)
+
+# Flag covariates where SE >= |beta|
+occ_coefs$exclude <- abs(occ_coefs$SE) >= abs(occ_coefs$Estimate)
+
+# Keep covariates where exclude == FALSE
+retained_occ_covs <- rownames(occ_coefs[occ_coefs$exclude == FALSE, ])
+retained_occ_covs   
+
+#  after exclusion
+simplified_global_occ <- occu(~ visit + hunting.24 +
+                                shifting_cultivation +
+                                evergreen_deciduous_forest + 
+                                road_length 
+                   ~ shifting_cultivation + 
+                     mean_elev + road_length +
+                     area_pa + evergreen_deciduous_forest + aspect + 
+                     agricuture + X_populationmean.x,
+                   data = umf)
+```
+
+### Carry out dredge model selection with the simplified global occupancy model
+
+```{r}
+# fit check before proceeding
+gof_occ <- mb.gof.test(simplified_global_occ, nsim = 1000, plot.hist = TRUE)
+chat_occ <- gof_occ$c.hat.est
+
+```
+
+looks fine no violations, just that c_hat is 1.4, implying slight over
+dispersion
+
+```{r}
+
+# Great Hornbill, Arunachal Pradesh
+
+# DREDGE WITH FIXED DETECTION TERMS
+
+# Fix detection terms — they won't be removed during dredge
+det_terms <- c(
+  "p(visit)",
+  "p(hunting.24)",
+  "p(shifting_cultivation)",
+  "p(evergreen_deciduous_forest)",
+  "p(road_length)"
+)
+
+# Dredge only occupancy terms, keep detection fixed
+occ_dred <- dredge(simplified_global_occ, 
+                       rank = "QAICc",
+                       fixed = det_terms,  # these won't be removed
+                       trace = 2,
+                       chat = chat_occ)
+
+occ_models <- get.models(occ_dred, subset=TRUE)
+
+# Your dredge output
+occ_model_table <- aictab(
+  cand.set = occ_models,
+  modnames = names(occ_models),
+  c.hat    = chat_occ  # use c-hat from Step 8
+)
+# GET TOP occupancy MODELS (cumulative weight <= 95)
+
+# Build credible set (cumulative weight up to 0.95)
+occ_credible_set <- occ_model_table %>%
+  filter(Cum.Wt <= 0.95)
+
+cat("Number of models:", nrow(occ_credible_set), "\n")
+cat("Cumulative QAICc weight:", round(max(occ_credible_set$Cum.Wt), 4), "\n\n")
+#Number of models: 134 
+#Cumulative QAICc weight: 0.9477
+top_occ_models <- get.models(occ_dred, subset = as.numeric(rownames(occ_credible_set)))
+
+top_occ_models <- Filter(function(m) m@opt$convergence == 0, top_occ_models)
+
+#average the models in the credible set
+ma_occ <- model.avg(top_occ_models, fit = TRUE, rank = "AICc", trace = 2, extra = "R^2", chat = chat_occ)
+occ_imp <- as.data.frame(MuMIn::sw(ma_occ))
+
+
+# Extract detailed model estimates
+occ_modelEst <- data.frame(
+    Coefficient = coefTable(ma_occ, full = TRUE)[, 1],
+    SE = coefTable(ma_occ, full = TRUE)[, 2],
+    lowerCI = confint(ma_occ)[, 1],
+    upperCI = confint(ma_occ)[, 2],
+    z_value = (summary(ma_occ)$coefmat.full)[, 3],
+    Pr_z = (summary(ma_occ)$coefmat.full)[, 4]
+  )
+
+
+###################################
+
+
+
+# SAVE RESULTS TO EXCEL
+
+
+cat("\n--- Saving Results to Excel ---\n")
+
+write.xlsx(
+  list(
+    "ModelEst" = occ_modelEst,
+    "Occu Importance" = occ_imp,
+    "det Importance" = det_imp,
+    "QAICc credible set table" = occ_credible_set
+  ),
+  file = "results/GH_occupancy_final_models.xlsx",
+  rowNames = FALSE
+)
+
+cat("Results saved: results/03_occupancy_final_models.xlsx\n")
+
+saveRDS(det_dred, "results/gh_det_dred.rds")
+saveRDS(occ_dred, "results/gh_occ_dred.rds")
+saveRDS(ma_det, "results/gh_ma_det.rds")
+saveRDS(ma_occ, "results/gh_ma_occ.rds")
+
+
+```
+
+## Plotting 
+
+For easier inference
+
+```{r}
+
+library(ggplot2)
+# Plot with SE
+ggplot(occ_modelEst, aes(x = factor(rownames(occ_modelEst), levels = sort(rownames(occ_modelEst))), y = Coefficient)) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = Coefficient - SE, ymax = Coefficient + SE), width = 0.2, size = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  coord_flip() +
+  labs(
+    title = "GH Model-Averaged Coefficients",
+    x = "Occupancy and Detection Covariates",           # x-axis label
+    y = "Coefficient estimates with SE (in logit scale)"  # y-axis label
+  ) +
+  theme_minimal()+ 
+    theme(
+    axis.text = element_text(size = 12),
+    )
+  
+ggsave("figures/gh_avg_model_coffients.png", width = 7, height = 8, dpi = 300)
+```
+
+### Now Predict
+
+```{r}
+library(sf)
+
+
+# Get occupancy predictions from your averaged model
+occupancy_pred <- predict(ma_occ, type = "state")
+
+site_details <- read.delim("results/arranged-final-site-cov.txt", sep = "\t")
+# Add predictions to your grids shapefile
+site_details$psi_estimate <- occupancy_pred$fit
+site_details$psi_se <- occupancy_pred$se.fit
+# save
+write.table(site_details, "results/sites_with_occu_pred.txt", sep = "\t")
+# load grids
+grids <- st_read("spatial-data/sampled-grids.shp")
+
+#filter and add prediction column 
+grids <- filter(grids, fid %in% site_details$grid.id)
+grids <- grids %>% left_join(
+    site_details %>% select(grid.id, psi_estimate, psi_se),
+    by = c("fid" = "grid.id")
+  ) 
+# Check results
+summary(grids$psi_estimate)
+
+# Save as GeoPackage
+st_write(grids, "figures/gh_grids_with_occupancy.gpkg", delete_dsn = TRUE)
+
+# Map the occupancy
+p_map <- ggplot(grids) +
+  geom_sf(aes(fill = psi_estimate)) +
+  scale_fill_viridis_c(name = "Occupancy (ψ)", limits = c(0, 1)) +
+  labs(title = "Great Hornbill Occupancy Across Arunachal Pradesh") +
+  theme_minimal() +
+  theme(
+    axis.title = element_text(size = 12, face = "bold"),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+# Display and save map
+print(p_map)
+
+cat("Occupancy predictions complete!\n")
+cat("Mean occupancy:", round(mean(grids$psi_estimate), 3), "\n")
+# Mean occupancy for GH: 0.353 (0.148)
+cat("SE:", round(mean(grids$psi_se), 3), "\n")
+
+```

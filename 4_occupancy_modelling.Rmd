@@ -86,6 +86,9 @@ simplified_global_det_summary <- summary(simplified_global_det)
 
 experience, proportion, dist.to.grid, canopy_height, and agriculture
 
+road_length, proportion, area under agriculture, canopy_height,
+experience, dist.to.grid
+
 meaning it does not affect the detection probability for Great Hornbill.
 
 #### Step 3 — GOF on Simplified Global Detection Model
@@ -203,7 +206,7 @@ best_det_formula_2 <- ~visit + area_pa + shifting_cultivation
 ```         
 ```
 
-But to be sure let us do another fitcheck with these two models, a more
+But to be sure let us do another fit check with these two models, a more
 penalizing one.
 
 ```{r}
