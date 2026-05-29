@@ -186,10 +186,8 @@ grids <- st_make_valid(grids)
 
 classes_of_interest <- c(
   "Shifting Cultivation",
-  "Scrub Forest",
   "Evergreen Forest\r\nEvergreen Forest",
   "Deciduous Forest",
-  "Alpine/Sub Alpine",
   "Agricuture"
 )
 
@@ -247,13 +245,7 @@ write.table(covariates_area, "spatial-data/area-under/covariates-full-elevation-
 pas <- st_read("spatial-data/area-under/PAs/TR-PA-corridor-NTCA.shp")
 grids <- st_read("spatial-data/covariate-calcs/final-grids-with-data.shp")   # or .gpkg
 
-# Check column names — find which column has the class names
-names(pas)
-head(pas)
 
-# Check unique class names (exact spelling matters)
-  unique(lulc$LULC_Class)   # replace 'class' with your actual column name
-  
 st_crs(pas)
 st_crs(grids)
 
@@ -281,16 +273,17 @@ pas_area <- pas_area %>%
   dplyr::rename(area_pa = area_m2)
 
 ### Now add them to the covariates table 
-covariates <- read.delim("spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under.txt")
+grids_with_data <- read.delim("prediction/grids-with-road-aspect-canopy-height-slope.csv", sep = ",") 
 
-covariates_pa_area <- covariates %>%
+covariates_pa_area <- grids_with_data %>%
   dplyr::left_join(
     pas_area,
-    by = c("grid.id" = "fid")
-  )
+    by = c("fid")
+  ) %>% 
+   dplyr::mutate(area_pa = tidyr::replace_na(area_pa, 0))
 
 
-write.table(covariates_pa_area, "spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under-pa.txt", sep = "\t")
+write.table(covariates_pa_area, "prediction/grids-full-elevation-roads-aspect-canopy-height-slope-area-under-pa.txt", sep = "\t", row.names = FALSE)
 ```
 
 Now we will add NDVI as a co-variate, which will serve as a proxy for
@@ -315,15 +308,35 @@ write.table(covariates, "spatial-data/area-under/covariates-full-elevation-roads
 Now add population as another co-variate
 
 ```{r}
-covariates <- read.delim("spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under-pa-ndvi.txt")
+grids <- read.delim("spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under-pa-ndvi.txt")
 pop_2015 <- read.csv("spatial-data/covariate-calcs/population-2015.csv")
-covariates <- covariates %>%
+covariates_pop <- covariates_pa_area %>%
   dplyr::left_join(
     pop_2015 %>% dplyr::select(fid, X_populationmean),  # replace with actual column name
-    by = c("grid.id" = "fid")
-  ) 
+    by = c("fid")
+  ) %>% 
+   dplyr::mutate(X_populationmean = tidyr::replace_na(X_populationmean, 0))
 
-write.table(covariates, "spatial-data/area-under/covariates-full-elevation-roads-aspect-canopy-height-slope-area-under-pa-ndvi-population.txt", sep = "\t")
 
+lulc_area <- read.delim("prediction/area-under-lulc-grids.txt", sep = "\t")
 
+covariates <- covariates_pop %>%
+  dplyr::left_join(
+    lulc_area,  
+    by = c("fid")
+  ) %>% dplyr::select(-X,-...1)
+
+covariates$evergreen_deciduous_forest <- covariates$evergreen_forest_evergreen_forest + covariates$deciduous_forest
+
+covariates <- select(covariates, -evergreen_forest_evergreen_forest, -deciduous_forest)
+
+covariates <- mutate(covariates, road_length = road_lenght)
+covariates <- mutate(covariates, X_populationmean.x = X_populationmean)
+covariates <- select(covariates, -road_lenght, -X_populationmean, -slope, -scrub_forest, -alpine_sub_alpine)
+
+write.table(covariates, "prediction/all-grids-site-covariates-for-prediction")
 ```
+
+shifting_cultivation + mean_elev + road_length + area_pa +
+evergreen_deciduous_forest + canopy_height + aspect + agricuture +
+X_populationmean.x

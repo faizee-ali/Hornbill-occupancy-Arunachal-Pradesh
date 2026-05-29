@@ -1,0 +1,137 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+### Now we fit these co-variates and build global occupancy model
+
+```{r}
+library(unmarked)
+library(MuMIn)
+library(AICcmodavg)
+
+library(dplyr)
+library(sf)
+
+# SINGLE SPECIES OCCUPANCY MODEL SELECTION & MODEL AVERAGING
+# Great Hornbill, Arunachal Pradesh
+
+det.cur <- read.delim("results/wh-det-cur-ready.txt") %>%
+  dplyr::mutate(across(3:6, ~ifelse(. == 2, 1, .))) 
+
+site.cov.selected <- read.delim("results/site-covariate-cur-ready.txt") %>% select(-grid.id)
+exp_grid <- read.delim("results/exp-current.txt")
+visit_grid <- read.delim("results/visit-current.txt")
+prop_grid <- read.delim("results/prop-current.txt")
+
+umf<- unmarkedFrameOccu(y = det.cur[,3:6],
+                        siteCovs = site.cov.selected,
+                        obsCovs = list(experience = exp_grid, 
+                                       visit = visit_grid,
+                                       proportion = prop_grid)
+)     # creating unmarked occupancy data frame
+
+
+# Global occupancy model
+global_occ <- occu(~ agricuture + evergreen_deciduous_forest + experience + road_length + shifting_cultivation
+                   ~ hunting.24 + shifting_cultivation + mean_elev 
+                   + road_length + area_pa + evergreen_deciduous_forest
+                   + canopy_height
+                   + aspect + agricuture + X_populationmean.x,
+                   data = umf)
+
+summary(global_occ)
+
+#Simplify Global Occupancy Model
+
+```
+
+### Global model fit check
+
+```{r}
+# fit check before proceeding
+gof_occ <- mb.gof.test(global_occ, nsim = 1000, plot.hist = TRUE)
+chat_occ <- gof_occ$c.hat.est
+
+```
+
+looks fine no violations, just that c_hat is close to 1, implying no
+over dispersion
+
+### Make the average model
+
+```{r}
+library(sf)
+
+occ_dred <- readRDS("results/wh_occ_dred.rds")
+occ_models <- get.models(occ_dred, subset = TRUE)
+occ_model_table <- aictab(
+  cand.set = occ_models,
+  c.hat = 1,
+  modnames = names(occ_models)
+)
+# GET TOP occupancy MODELS (cumulative weight <= 95)
+
+# Build credible set (cumulative weight up to 0.95)
+occ_credible_set <- occ_model_table %>%
+  filter(Cum.Wt <= 0.95 & Delta_AICc <= 4)
+
+
+top_occ_models <- get.models(occ_dred, subset = as.numeric(rownames(occ_credible_set)))
+
+top_occ_models <- Filter(function(m) m@opt$convergence == 0, top_occ_models)
+
+# Get occupancy predictions from your averaged model
+library(AICcmodavg)
+covariates <- read.table("prediction/all-grids-site-covariates-for-prediction.txt")
+covariates[,c(2:10)] <- scale(covariates[,c(2:10)])
+
+
+pred<- modavgPred(cand.set = top_occ_models,
+newdata = covariates,
+parm.type = "psi",
+c.hat = 1,
+untransformed = F)
+
+# Add predictions to your grids shapefile
+# load grids
+grids <- st_read("spatial-data/final-grids-with-data-canopy.shp")
+grids$psi_estimate <- pred$mod.avg.pred
+
+# Check results
+summary(grids$psi_estimate)
+
+# Save as GeoPackage
+st_write(grids, "results/rnh_grids_with_occupancy-estimate.kml")
+
+
+```
+
+```{r}
+library(ggplot2)
+library(ggplot2)
+library(sf)
+
+# Load Arunachal Pradesh shapefile
+arunachal <- st_read("spatial-data/arunachalpradeshshape.kml")
+
+# Create map with state boundary
+p_map <- ggplot() +
+  # State boundary as background
+  geom_sf(data = arunachal, fill = "gray95", color = "gray40", size = 0.8) +
+  
+  # Occupancy grids overlay
+  geom_sf(data = grids, aes(fill = psi_estima), alpha = 0.8) +
+  scale_fill_viridis_b(name = "Occupancy (ψ)", limits = c(1, 0), direction = -1) +
+  
+  labs(title = "Oriental-pied Hornbill Occupancy Across AP") +
+  theme_minimal() +
+  theme(
+    axis.title = element_text(size = 12, face = "bold"),
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "right"
+  )
+
+p_map
+ggsave("figures/oph_occupancy_map_arunachal.png", plot = p_map, width = 10, height = 8, dpi = 300)
+```
